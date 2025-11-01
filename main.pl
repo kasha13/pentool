@@ -8,8 +8,7 @@ use HTML::Form;
 use Data::Dumper;
 use HTTP::Cookies;
 use HTML::LinkExtor;
-
-my $url = $ARGV[0];
+use URI::URL;
 
 sub get_ua
 {
@@ -122,10 +121,10 @@ sub extract_links($$)
     return @links;
 }
 
-sub parse($$$)
+sub parse($$$$$)
 {
-    my ($base_url, $content, $charset) = @_;
-    foreach my $form (HTML::Form->parse($content, base=>$url, charset=>$charset))
+    my ($base_url, $content, $charset, $domain, $visited_links) = @_;
+    foreach my $form (HTML::Form->parse($content, base=>$base_url, charset=>$charset))
     {
         my %params;
         foreach my $input ($form->inputs)
@@ -140,13 +139,24 @@ sub parse($$$)
     my @urls = extract_links($content, $base_url);
     foreach my $url (@urls)
     {
-        check($url);
+        next if (get_domain($url) ne $domain);
+        next if exists($visited_links->{$url});
+        $visited_links->{$url} = 1;
+        check($url, $domain, $visited_links);
     }
 }
 
-sub check($)
+sub get_domain($)
 {
     my $url = $_[0];
+    my ($domain) = $url =~ m!^https?://([^/]+)!;
+    die "Wrong url: $url" if (length($domain) == 0);
+    return $domain;
+}
+
+sub check($$$)
+{
+    my ($url, $domain, $visited_links) = @_;
     debug("Download $url");
     my $r = download($url);
     if (!$r->is_success)
@@ -159,7 +169,7 @@ sub check($)
         debug("$url is not html: ".$r->content_type);
         return;
     }
-    parse($url, $r->decoded_content, $r->content_charset);
+    parse($url, $r->decoded_content, $r->content_charset, $domain, $visited_links);
 }
 
 sub download($)
@@ -171,4 +181,6 @@ sub download($)
 }
 
 die "$0 <url>" if @ARGV != 1;
-check($ARGV[0]);
+my %visited_links = ($ARGV[0] => 1);
+my $domain = get_domain($ARGV[0]);
+check($ARGV[0], $domain, \%visited_links);
