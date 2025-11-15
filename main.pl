@@ -140,6 +140,7 @@ sub parse($$$$$)
     foreach my $url (@urls)
     {
         next if (get_domain($url) ne $domain);
+        $url =~ s/#[^#]+$//;
         next if exists($visited_links->{$url});
         $visited_links->{$url} = 1;
         check($url, $domain, $visited_links);
