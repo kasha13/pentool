@@ -162,7 +162,7 @@ sub check($$$)
     my $r = download($url);
     if (!$r->is_success)
     {
-        debug("Download $url error");
+        debug("Download $url error: ". $r->status_line);
         return;
     }
     if (!is_html($r->content_type))
@@ -176,9 +176,12 @@ sub check($$$)
 sub download($)
 {
     my $url = $_[0];
-    my $req = HTTP::Request->new('GET');
-    $req->url($url);
-    return get_ua()->request($req);
+    my $ua = LWP::UserAgent->new(
+        timeout => 10,
+        ssl_opts => { verify_hostname => 0, SSL_verify_mode => 0 }, # Disable SSL verification
+        );
+    my $req = HTTP::Request->new('GET' => $url);
+    return $ua->request($req);
 }
 
 die "$0 <url>" if @ARGV != 1;
