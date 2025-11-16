@@ -139,7 +139,8 @@ sub parse($$$$$)
     my @urls = extract_links($content, $base_url);
     foreach my $url (@urls)
     {
-        next if (get_domain($url) ne $domain);
+        my $ret_domain = get_domain($url);
+        next if (!defined($ret_domain) or ($ret_domain ne $domain));
         $url =~ s/#[^#]*$//;
         next if exists($visited_links->{$url});
         $visited_links->{$url} = 1;
@@ -151,7 +152,7 @@ sub get_domain($)
 {
     my $url = $_[0];
     my ($domain) = $url =~ m!^https?://([^/]+)!;
-    die "Wrong url: $url" if (length($domain) == 0);
+    error("Wrong url: $url") if (!defined($domain));
     return $domain;
 }
 
