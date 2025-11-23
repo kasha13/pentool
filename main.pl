@@ -72,7 +72,9 @@ sub post_check($$$)
     my $request = POST( $action, [ %$params_arg ] );
     my $normal = get_ua()->request($request);
     my %params = %$params_arg;
-    foreach my $val ("'", '"', '`')
+    my @vals = ("'", '"', '`');
+    push(@vals, 'true') if $name =~ /pass/i;
+    foreach my $val (@vals)
     {
         $params{$name} = $val;
         my $request = POST( $action, [ %params ] );
