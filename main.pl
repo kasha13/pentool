@@ -9,6 +9,13 @@ use Data::Dumper;
 use HTTP::Cookies;
 use HTML::LinkExtor;
 use URI::URL;
+use Carp;
+
+my $SQL_INJECTION=1;
+my $XSS = 2;
+my %PAYLOADS = ($SQL_INJECTION => ["'", '"', '`', 'true'],
+                $XSS => ['name<script>alert("hi")</script>']);
+my %PAYLOAD_HANDLERS = ($SQL_INJECTION => \&sql_injection, $XSS => \&xss);
 
 sub get_ua
 {
@@ -41,13 +48,22 @@ sub is_html($)
     return ($_[0] =~ /html/)? 1 : 0;
 }
 
-sub compare($$$$$)
+sub sql_injection($$$$$)
 {
     my ($normal, $pervert, $val, $name, $action) = @_;
     error("For $name $action value=$val HTTP response code is changed") if ($normal->code != $pervert->code);
     my $normal_content = $normal->decoded_content();
     my $pervert_content = $pervert->decoded_content();
     error("For $name $action value=$val different content size") if (abs(length($normal_content) - length($pervert_content)) > 10);
+}
+
+sub xss($$$$$)
+{
+    my ($normal, $pervert, $val, $name, $action) = @_;
+    error("For $name $action value=$val HTTP response code is changed") if ($normal->code != $pervert->code);
+    my $normal_content = $normal->decoded_content();
+    my $pervert_content = $pervert->decoded_content();
+    error("For $name $action value=$val xss payload reflection") if ($pervert_content =~ /\Q$val\E/);
 }
 
 sub get_check($$$)
@@ -57,12 +73,15 @@ sub get_check($$$)
     $uri->query_form(%$params_arg);
     my $normal = download($uri->as_string());
     my %params = %$params_arg;
-    foreach my $val ("'", '"', '`')
+    while (my ($type, $payloads) = each %PAYLOADS)
     {
-        $params{$name} = $val;
-        $uri->query_form(%params);
-        my $pervert = download($uri->as_string());
-        compare($normal, $pervert, $val, $name, $action);
+        foreach my $payload (@$payloads)
+        {
+            $params{$name} = $payload;
+            $uri->query_form(%params);
+            my $pervert = download($uri->as_string());
+            $PAYLOAD_HANDLERS{$type}->($normal, $pervert, $payload, $name, $action);
+        }
     }
 }
 
@@ -72,14 +91,15 @@ sub post_check($$$)
     my $request = POST( $action, [ %$params_arg ] );
     my $normal = get_ua()->request($request);
     my %params = %$params_arg;
-    my @vals = ("'", '"', '`');
-    push(@vals, 'true') if $name =~ /pass/i;
-    foreach my $val (@vals)
+    while (my ($type, $payloads) = each %PAYLOADS)
     {
-        $params{$name} = $val;
-        my $request = POST( $action, [ %params ] );
-        my $pervert = get_ua()->request($request);
-        compare($normal, $pervert, $val, $name, $action);
+        foreach my $payload (@$payloads)
+        {
+            $params{$name} = $payload;
+            my $request = POST( $action, [ %params ] );
+            my $pervert = get_ua()->request($request);
+            $PAYLOAD_HANDLERS{$type}->($normal, $pervert, $payload, $name, $action);
+        }
     }
 }
 
