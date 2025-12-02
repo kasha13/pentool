@@ -88,26 +88,29 @@ sub get_check($$$)
     }
 }
 
-sub post_check($$$)
+sub post_download($$)
 {
-    my ($params_arg, $name, $action) = @_;
+    my ($params_arg, $action) = @_;
     my $start = int(time() * 1000);
     my $request = POST( $action, [ %$params_arg ] );
     my %normal;
     $normal{http} = get_ua()->request($request);
     $normal{duration} = int(time() * 1000) - $start;
+    return \%normal;
+}
+
+sub post_check($$$)
+{
+    my ($params_arg, $name, $action) = @_;
+    my $normal = post_download($params_arg, $action);
     my %params = %$params_arg;
     while (my ($type, $payloads) = each %PAYLOADS)
     {
         foreach my $payload (@$payloads)
         {
             $params{$name} = $payload;
-            my $request = POST( $action, [ %params ] );
-            my $start = int(time() * 1000);
-            my %pervert;
-            $pervert{http} = get_ua()->request($request);
-            $pervert{duration} = int(time() * 1000) - $start;
-            $PAYLOAD_HANDLERS{$type}->(\%normal, \%pervert, $payload, $name, $action);
+            my $pervert = post_download(\%params, $action);
+            $PAYLOAD_HANDLERS{$type}->($normal, $pervert, $payload, $name, $action);
         }
     }
 }
