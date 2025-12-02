@@ -10,10 +10,11 @@ use HTTP::Cookies;
 use HTML::LinkExtor;
 use URI::URL;
 use Carp;
+use Time::HiRes qw(time);
 
 my $SQL_INJECTION=1;
 my $XSS = 2;
-my %PAYLOADS = ($SQL_INJECTION => ["'", '"', '`', 'true'],
+my %PAYLOADS = ($SQL_INJECTION => ["'", '"', '`', 'true', 'admin', 'Admin', 'administrator', 'Administrator'],
                 $XSS => ['name<script>alert("hi")</script>']);
 my %PAYLOAD_HANDLERS = ($SQL_INJECTION => \&sql_injection, $XSS => \&xss);
 
@@ -50,19 +51,21 @@ sub is_html($)
 
 sub sql_injection($$$$$)
 {
+    my $MAX_DURATION_DELTA = 400; #milliseconds
     my ($normal, $pervert, $val, $name, $action) = @_;
-    error("For $name $action value=$val HTTP response code is changed") if ($normal->code != $pervert->code);
-    my $normal_content = $normal->decoded_content();
-    my $pervert_content = $pervert->decoded_content();
+    error("For $name $action value=$val HTTP response code is changed") if ($normal->{http}->code != $pervert->{http}->code);
+    my $normal_content = $normal->{http}->decoded_content();
+    my $pervert_content = $pervert->{http}->decoded_content();
     error("For $name $action value=$val different content size") if (abs(length($normal_content) - length($pervert_content)) > 10);
+    error("For $name $action value=$val duration warning") if (abs($pervert->{duration} - $normal->{duration}) > $MAX_DURATION_DELTA);
 }
 
 sub xss($$$$$)
 {
     my ($normal, $pervert, $val, $name, $action) = @_;
-    error("For $name $action value=$val HTTP response code is changed") if ($normal->code != $pervert->code);
-    my $normal_content = $normal->decoded_content();
-    my $pervert_content = $pervert->decoded_content();
+    error("For $name $action value=$val HTTP response code is changed") if ($normal->{http}->code != $pervert->{http}->code);
+    my $normal_content = $normal->{http}->decoded_content();
+    my $pervert_content = $pervert->{http}->decoded_content();
     error("For $name $action value=$val xss payload reflection") if ($pervert_content =~ /\Q$val\E/);
 }
 
@@ -88,8 +91,11 @@ sub get_check($$$)
 sub post_check($$$)
 {
     my ($params_arg, $name, $action) = @_;
+    my $start = int(time() * 1000);
     my $request = POST( $action, [ %$params_arg ] );
-    my $normal = get_ua()->request($request);
+    my %normal;
+    $normal{http} = get_ua()->request($request);
+    $normal{duration} = int(time() * 1000) - $start;
     my %params = %$params_arg;
     while (my ($type, $payloads) = each %PAYLOADS)
     {
@@ -97,8 +103,11 @@ sub post_check($$$)
         {
             $params{$name} = $payload;
             my $request = POST( $action, [ %params ] );
-            my $pervert = get_ua()->request($request);
-            $PAYLOAD_HANDLERS{$type}->($normal, $pervert, $payload, $name, $action);
+            my $start = int(time() * 1000);
+            my %pervert;
+            $pervert{http} = get_ua()->request($request);
+            $pervert{duration} = int(time() * 1000) - $start;
+            $PAYLOAD_HANDLERS{$type}->(\%normal, \%pervert, $payload, $name, $action);
         }
     }
 }
@@ -183,17 +192,17 @@ sub check($$$)
     my ($url, $domain, $visited_links) = @_;
     debug("Download $url");
     my $r = download($url);
-    if (!$r->is_success)
+    if (!$r->{http}->is_success)
     {
-        debug("Download $url error: ". $r->status_line);
+        debug("Download $url error: ". $r->{http}->status_line);
         return;
     }
-    if (!is_html($r->content_type))
+    if (!is_html($r->{http}->content_type))
     {
-        debug("$url is not html: ".$r->content_type);
+        debug("$url is not html: ".$r->{http}->content_type);
         return;
     }
-    parse($url, $r->decoded_content, $r->content_charset, $domain, $visited_links);
+    parse($url, $r->{http}->decoded_content, $r->{http}->content_charset, $domain, $visited_links);
 }
 
 sub download($)
@@ -204,7 +213,11 @@ sub download($)
         ssl_opts => { verify_hostname => 0, SSL_verify_mode => 0 }, # Disable SSL verification
         );
     my $req = HTTP::Request->new('GET' => $url);
-    return $ua->request($req);
+    my %result;
+    my $start = int(time() * 1000);
+    $result{http} =  $ua->request($req);
+    $result{duration} = int(time() * 1000) - $start;
+    return \%result;
 }
 
 die "$0 <url>" if @ARGV != 1;
