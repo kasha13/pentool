@@ -14,9 +14,11 @@ use Time::HiRes qw(time);
 
 my $SQL_INJECTION=1;
 my $XSS = 2;
+my $STTI = 3;
 my %PAYLOADS = ($SQL_INJECTION => ["'", '"', '`', 'true', 'admin', 'Admin', 'administrator', 'Administrator'],
-                $XSS => ['name<script>alert("hi")</script>']);
-my %PAYLOAD_HANDLERS = ($SQL_INJECTION => \&sql_injection, $XSS => \&xss);
+                $XSS => ['name<script>alert("hi")</script>'],
+                $STTI => ['${256*256}', '#{256*256}', '*{256*256}', '{{256*256}}']);
+my %PAYLOAD_HANDLERS = ($SQL_INJECTION => \&sql_injection, $XSS => \&xss, $STTI => \&stti);
 
 sub get_ua
 {
@@ -67,6 +69,15 @@ sub xss($$$$$)
     my $normal_content = $normal->{http}->decoded_content();
     my $pervert_content = $pervert->{http}->decoded_content();
     error("For $name $action value=$val xss payload reflection") if ($pervert_content =~ /\Q$val\E/);
+}
+
+sub stti($$$$$)
+{
+    my ($normal, $pervert, $val, $name, $action) = @_;
+    error("For $name $action value=$val HTTP response code is changed") if ($normal->{http}->code != $pervert->{http}->code);
+    my $normal_content = $normal->{http}->decoded_content();
+    my $pervert_content = $pervert->{http}->decoded_content();
+    error("For $name $action value=$val stti is detected") if ($pervert_content =~ /\Q65536\E/);
 }
 
 sub get_check($$$)
