@@ -15,7 +15,7 @@ use Time::HiRes qw(time);
 my $SQL_INJECTION=1;
 my $XSS = 2;
 my $STTI = 3;
-my %PAYLOADS = ($SQL_INJECTION => ["'", '"', '`', 'true', 'admin', 'Admin', 'administrator', 'Administrator'],
+my %PAYLOADS = ($SQL_INJECTION => ["'", '"', '`', 'true', 'admin', 'Admin', 'administrator', 'Administrator', "admin' || '' === '"],
                 $XSS => ['name<script>alert("hi")</script>'],
                 $STTI => ['${256*256}', '#{256*256}', '*{256*256}', '{{256*256}}']);
 my %PAYLOAD_HANDLERS = ($SQL_INJECTION => \&sql_injection, $XSS => \&xss, $STTI => \&stti);
@@ -166,19 +166,31 @@ sub extract_links($$)
     return @links;
 }
 
+sub get_form_params($)
+{
+    my ($inputs) = @_;
+    my %params;
+    foreach my $input (@$inputs)
+    {
+        next if ($input->type eq 'submit');
+        next if (!defined($input->name) or length($input->name) == 0);
+        my $value = $input->value || 'value';
+        $params{$input->name} = $value;
+    }
+    return \%params;
+}
+
 sub parse($$$$$)
 {
     my ($base_url, $content, $charset, $domain, $visited_links) = @_;
     foreach my $form (HTML::Form->parse($content, base=>$base_url, charset=>$charset))
     {
-        my %params;
+        my $params = get_form_params([$form->inputs]);
         foreach my $input ($form->inputs)
         {
             next if ($input->type eq 'submit');
             next if (!defined($input->name) or length($input->name) == 0);
-            my $value = $input->value || 'value';
-            $params{$input->name} = $value;
-            check_parameter($form->action, $form->method, \%params, $input->name);
+            check_parameter($form->action, $form->method, $params, $input->name);
         }
     }
     my @urls = extract_links($content, $base_url);
